@@ -26,6 +26,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerTools, registerToolsRemote } from './tools.js';
 import { checkGCP } from './lib/gcp-metadata.js';
 import { ensureGCPCredentials } from './lib/gcp-auth-check.js';
+import { parseCliArgs } from './lib/cli-args.js';
+import { createToolFilter } from './lib/tool-registry.js';
 import 'dotenv/config';
 
 const gcpInfo = await checkGCP();
@@ -61,6 +63,15 @@ const defaultServiceName = process.env.DEFAULT_SERVICE_NAME;
 const skipIamCheck = process.env.SKIP_IAM_CHECK !== 'false';
 
 async function getServer() {
+  // Parse CLI arguments for tool filtering
+  let cliConfig;
+  try {
+    cliConfig = parseCliArgs();
+  } catch (error) {
+    console.error(`CLI argument error: ${error.message}`);
+    process.exit(1);
+  }
+
   // Create an MCP server with implementation details
   const server = new McpServer({
     name: 'cloud-run',
@@ -74,6 +85,17 @@ async function getServer() {
   const effectiveProjectId = envProjectId || (gcpInfo && gcpInfo.project) || undefined;
   const effectiveRegion = envRegion || (gcpInfo && gcpInfo.region) || 'europe-west1';
 
+  const isRemote = !shouldStartStdio() && (gcpInfo && gcpInfo.project);
+
+  // Create tool filter based on CLI arguments and mode
+  let toolFilter;
+  try {
+    toolFilter = createToolFilter(cliConfig.enabledTools, cliConfig.disabledTools, isRemote);
+  } catch (error) {
+    console.error(`Tool filtering error: ${error.message}`);
+    process.exit(1);
+  }
+
   if (shouldStartStdio() || !(gcpInfo && gcpInfo.project)) {
     console.log('Using tools optimized for local or stdio mode.');
     // Pass the determined defaults to the local tool registration
@@ -81,7 +103,8 @@ async function getServer() {
       defaultProjectId: effectiveProjectId,
       defaultRegion: effectiveRegion,
       defaultServiceName,
-      skipIamCheck
+      skipIamCheck,
+      toolFilter
     });
   } else {
     console.log(`Running on GCP project: ${effectiveProjectId}, region: ${effectiveRegion}. Using tools optimized for remote use.`);
@@ -90,7 +113,8 @@ async function getServer() {
       defaultProjectId: effectiveProjectId,
       defaultRegion: effectiveRegion,
       defaultServiceName,
-      skipIamCheck
+      skipIamCheck,
+      toolFilter
     });
   }
 

@@ -26,345 +26,362 @@ export const registerTools = (server, {
   defaultRegion,
   defaultServiceName,
   skipIamCheck,
+  toolFilter = null,
 } = {}) => {
   // Tool to list GCP projects
-  server.tool(
-    "list_projects",
-    "Lists available GCP projects",
-    async () => {
-      try {
-        const projects = await listProjects();
-        return {
-          content: [{
-            type: 'text',
-            text: `Available GCP Projects:\n${projects.map(p => `- ${p.id}`).join('\n')}`
-          }]
-        };
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error listing GCP projects: ${error.message}`
-          }]
-        };
+  if (!toolFilter || toolFilter('list_projects')) {
+    server.tool(
+      "list_projects",
+      "Lists available GCP projects",
+      async () => {
+        try {
+          const projects = await listProjects();
+          return {
+            content: [{
+              type: 'text',
+              text: `Available GCP Projects:\n${projects.map(p => `- ${p.id}`).join('\n')}`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error listing GCP projects: ${error.message}`
+            }]
+          };
+        }
       }
-    }
-  );
+    );
+  }
 
   // Tool to create a new GCP project
-  server.tool(
-    "create_project",
-    "Creates a new GCP project and attempts to attach it to the first available billing account. A project ID can be optionally specified; otherwise it will be automatically generated.",
-    {
-      projectId: z.string().optional().describe("Optional. The desired ID for the new GCP project. If not provided, an ID will be auto-generated."),
-    },
-    async ({ projectId }) => {
-      if (projectId !== undefined && (typeof projectId !== 'string' || projectId.trim() === '')) {
-        return {
-          content: [{
-            type: 'text',
-            text: "Error: If provided, Project ID must be a non-empty string."
-          }]
-        };
+  if (!toolFilter || toolFilter('create_project')) {
+    server.tool(
+      "create_project",
+      "Creates a new GCP project and attempts to attach it to the first available billing account. A project ID can be optionally specified; otherwise it will be automatically generated.",
+      {
+        projectId: z.string().optional().describe("Optional. The desired ID for the new GCP project. If not provided, an ID will be auto-generated."),
+      },
+      async ({ projectId }) => {
+        if (projectId !== undefined && (typeof projectId !== 'string' || projectId.trim() === '')) {
+          return {
+            content: [{
+              type: 'text',
+              text: "Error: If provided, Project ID must be a non-empty string."
+            }]
+          };
+        }
+        try {
+          const result = await createProjectAndAttachBilling(projectId);
+          return {
+            content: [{
+              type: 'text',
+              text: `Successfully created GCP project with ID "${newProjectId}". You can now use this project ID for deployments.`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error creating GCP project or attaching billing: ${error.message}`
+            }]
+          };
+        }
       }
-      try {
-        const result = await createProjectAndAttachBilling(projectId);
-        return {
-          content: [{
-            type: 'text',
-            text: `Successfully created GCP project with ID "${newProjectId}". You can now use this project ID for deployments.`
-          }]
-        };
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error creating GCP project or attaching billing: ${error.message}`
-          }]
-        };
-      }
-    }
-  );
+    );
+  }
 
   // Listing Cloud Run services
-  server.tool(
-    "list_services",
-    "Lists Cloud Run services in a given project and region.",
-    {
-      project: z.string().describe("Google Cloud project ID").default(defaultProjectId),
-      region: z.string().describe("Region where the services are located").default(defaultRegion),
-    },
-    async ({ project, region }) => {
-      if (typeof project !== 'string') {
-        return { content: [{ type: 'text', text: "Error: Project ID must be provided and be a non-empty string." }] };
-      }
+  if (!toolFilter || toolFilter('list_services')) {
+    server.tool(
+      "list_services",
+      "Lists Cloud Run services in a given project and region.",
+      {
+        project: z.string().describe("Google Cloud project ID").default(defaultProjectId),
+        region: z.string().describe("Region where the services are located").default(defaultRegion),
+      },
+      async ({ project, region }) => {
+        if (typeof project !== 'string') {
+          return { content: [{ type: 'text', text: "Error: Project ID must be provided and be a non-empty string." }] };
+        }
 
-      try {
-        const services = await listServices(project, region);
-        const serviceList = services.map(s => {
-          const serviceName = s.name.split('/').pop();
-          return `- ${serviceName} (URL: ${s.uri})`;
-        }).join('\n');
-        return {
-          content: [{
-            type: 'text',
-            text: `Services in project ${project} (location ${region}):\n${serviceList}`
-          }]
-        };
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error listing services for project ${project} (region ${region}): ${error.message}`
-          }]
-        };
+        try {
+          const services = await listServices(project, region);
+          const serviceList = services.map(s => {
+            const serviceName = s.name.split('/').pop();
+            return `- ${serviceName} (URL: ${s.uri})`;
+          }).join('\n');
+          return {
+            content: [{
+              type: 'text',
+              text: `Services in project ${project} (location ${region}):\n${serviceList}`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error listing services for project ${project} (region ${region}): ${error.message}`
+            }]
+          };
+        }
       }
-    }
-  );
+    );
+  }
 
   // Dynamic resource for getting a specific service
-  server.tool(
-    "get_service",
-    "Gets details for a specific Cloud Run service.",
-    {
-      project: z.string().describe("Google Cloud project ID containing the service").default(defaultProjectId),
-      region: z.string().describe("Region where the service is located").default(defaultRegion),
-      service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
-    },
-    async ({ project, region, service }) => {
-      if (typeof project !== 'string') {
-        return { content: [{ type: 'text', text: "Error: Project ID must be provided." }] };
-      }
-      if (typeof service !== 'string') {
-        return { content: [{ type: 'text', text: "Error: Service name must be provided." }] };
-      }
-      try {
-        const serviceDetails = await getService(project, region, service);
-        if (serviceDetails) {
+  if (!toolFilter || toolFilter('get_service')) {
+    server.tool(
+      "get_service",
+      "Gets details for a specific Cloud Run service.",
+      {
+        project: z.string().describe("Google Cloud project ID containing the service").default(defaultProjectId),
+        region: z.string().describe("Region where the service is located").default(defaultRegion),
+        service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
+      },
+      async ({ project, region, service }) => {
+        if (typeof project !== 'string') {
+          return { content: [{ type: 'text', text: "Error: Project ID must be provided." }] };
+        }
+        if (typeof service !== 'string') {
+          return { content: [{ type: 'text', text: "Error: Service name must be provided." }] };
+        }
+        try {
+          const serviceDetails = await getService(project, region, service);
+          if (serviceDetails) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Name: ${service}\nRegion: ${region}\nProject: ${project}\nURL: ${serviceDetails.uri}\nLast deployed by: ${serviceDetails.lastModifier}`
+              }]
+            };
+          } else {
+            return {
+              content: [{
+                type: 'text',
+                text: `Service ${service} not found in project ${project} (region ${region}).`
+              }]
+            };
+          }
+        } catch (error) {
           return {
             content: [{
               type: 'text',
-              text: `Name: ${service}\nRegion: ${region}\nProject: ${project}\nURL: ${serviceDetails.uri}\nLast deployed by: ${serviceDetails.lastModifier}`
-            }]
-          };
-        } else {
-          return {
-            content: [{
-              type: 'text',
-              text: `Service ${service} not found in project ${project} (region ${region}).`
+              text: `Error getting service ${service} in project ${project} (region ${region}): ${error.message}`
             }]
           };
         }
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error getting service ${service} in project ${project} (region ${region}): ${error.message}`
-          }]
-        };
       }
-    }
-  );
+    );
+  }
 
   // Logs for a service
-  server.tool(
-    "get_service_log",
-    "Gets Logs and Error Messages for a specific Cloud Run service.",
-    {
-      project: z.string().describe("Google Cloud project ID containing the service").default(defaultProjectId),
-      region: z.string().describe("Region where the service is located").default(defaultRegion),
-      service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
-    },
-    async ({ project, region, service }) => {
-      let allLogs = [];
-      let requestOptions;
-      try {
-        do {
-          // Fetch a page of logs
-          const response = await getServiceLogs(project, region, service, requestOptions);
+  if (!toolFilter || toolFilter('get_service_log')) {
+    server.tool(
+      "get_service_log",
+      "Gets Logs and Error Messages for a specific Cloud Run service.",
+      {
+        project: z.string().describe("Google Cloud project ID containing the service").default(defaultProjectId),
+        region: z.string().describe("Region where the service is located").default(defaultRegion),
+        service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
+      },
+      async ({ project, region, service }) => {
+        let allLogs = [];
+        let requestOptions;
+        try {
+          do {
+            // Fetch a page of logs
+            const response = await getServiceLogs(project, region, service, requestOptions);
 
-          if (response.logs) {
-            allLogs.push(response.logs);
-          }
-
-          // Set the requestOptions incl pagintion token for the next iteration
-
-          requestOptions = response.requestOptions;
-
-        } while (requestOptions); // Continue as long as there is a next page token
-        return {
-          content: [{
-            type: 'text',
-            text: allLogs.join('\n')
-          }]
-        };
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error getting Logs for service ${service} in project ${project} (region ${region}): ${error.message}`
-          }]
-        };
-      }
-    }
-  );
-
-  server.tool(
-    'deploy_local_files',
-    'Deploy local files to Cloud Run. Takes an array of absolute file paths from the local filesystem that will be deployed. Use this tool if the files exists on the user local filesystem.',
-    {
-      project: z.string().describe('Google Cloud project ID. Do not select it yourself, make sure the user provides or confirms the project ID.').default(defaultProjectId),
-      region: z.string().optional().default(defaultRegion).describe('Region to deploy the service to'),
-      service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'),
-      files: z.array(z.string()).describe('Array of absolute file paths to deploy (e.g. ["/home/user/project/src/index.js", "/home/user/project/package.json"])'),
-    },
-    async ({ project, region, service, files }) => {
-      if (typeof project !== 'string') {
-        throw new Error('Project must specified, please prompt the user for a valid existing Google Cloud project ID.');
-      }
-      if (typeof files !== 'object' || !Array.isArray(files)) {
-        throw new Error('Files must specified');
-      }
-      if (files.length === 0) {
-        throw new Error('No files specified for deployment');
-      }
-
-      // Deploy to Cloud Run
-      try {
-        // TODO: Should we return intermediate progress messages? we'd need to use sendNotification for that, see https://github.com/modelcontextprotocol/typescript-sdk/blob/main/src/examples/server/jsonResponseStreamableHttp.ts#L46C24-L46C41
-        const response = await deploy({
-          projectId: project,
-          serviceName: service,
-          region: region,
-          files: files,
-          skipIamCheck: skipIamCheck, // Pass the new flag
-        });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Cloud Run service ${service} deployed in project ${project}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${project}\nService URL: ${response.uri}`,
+            if (response.logs) {
+              allLogs.push(response.logs);
             }
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
+
+            // Set the requestOptions incl pagintion token for the next iteration
+
+            requestOptions = response.requestOptions;
+
+          } while (requestOptions); // Continue as long as there is a next page token
+          return {
+            content: [{
               type: 'text',
-              text: `Error deploying to Cloud Run: ${error.message || error}`,
-            }
-          ],
-        };
-      }
-    });
-
-
-  server.tool(
-    'deploy_local_folder',
-    'Deploy a local folder to Cloud Run. Takes an absolute folder path from the local filesystem that will be deployed. Use this tool if the entire folder content needs to be deployed.',
-    {
-      project: z.string().describe('Google Cloud project ID. Do not select it yourself, make sure the user provides or confirms the project ID.').default(defaultProjectId),
-      region: z.string().optional().default(defaultRegion).describe('Region to deploy the service to'),
-      service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'),
-      folderPath: z.string().describe('Absolute path to the folder to deploy (e.g. "/home/user/project/src")'),
-    },
-    async ({ project, region, service, folderPath }) => {
-      if (typeof project !== 'string') {
-        throw new Error('Project must be specified, please prompt the user for a valid existing Google Cloud project ID.');
-      }
-      if (typeof folderPath !== 'string' || folderPath.trim() === '') {
-        throw new Error('Folder path must be specified and be a non-empty string.');
-      }
-
-      // Deploy to Cloud Run
-      try {
-        const response = await deploy({
-          projectId: project,
-          serviceName: service,
-          region: region,
-          files: [folderPath],
-          skipIamCheck: skipIamCheck, // Pass the new flag
-        });
-        return {
-          content: [
-            {
+              text: allLogs.join('\n')
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
               type: 'text',
-              text: `Cloud Run service ${service} deployed from folder ${folderPath} in project ${project}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${project}\nService URL: ${response.uri}`,
-            }
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error deploying folder to Cloud Run: ${error.message || error}`,
-            }
-          ],
-        };
-      }
-    }
-  );
-
-  server.tool(
-    'deploy_file_contents',
-    'Deploy files to Cloud Run by providing their contents directly. Takes an array of file objects containing filename and content. Use this tool if the files only exist in the current chat context.',
-    {
-      project: z.string().describe('Google Cloud project ID. Leave unset for the app to be deployed in a new project. If provided, make sure the user confirms the project ID they want to deploy to.').default(defaultProjectId),
-      region: z.string().optional().default(defaultRegion).describe('Region to deploy the service to'),
-      service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'),
-      files: z.array(z.object({
-        filename: z.string().describe('Name and path of the file (e.g. "src/index.js" or "data/config.json")'),
-        content: z.string().optional().describe('Text content of the file'),
-      })).describe('Array of file objects containing filename and content'),
-    },
-    async ({ project, region, service, files }) => {
-      if (typeof project !== 'string') {
-        throw new Error('Project must specified, please prompt the user for a valid existing Google Cloud project ID.');
-      }
-      if (typeof files !== 'object' || !Array.isArray(files)) {
-        throw new Error('Files must be specified');
-      }
-      if (files.length === 0) {
-        throw new Error('No files specified for deployment');
-      }
-
-      // Validate that each file has either content
-      for (const file of files) {
-        if (!file.content) {
-          throw new Error(`File ${file.filename} must have content`);
+              text: `Error getting Logs for service ${service} in project ${project} (region ${region}): ${error.message}`
+            }]
+          };
         }
       }
+    );
+  }
 
-      // Deploy to Cloud Run
-      try {
-        const response = await deploy({
-          projectId: project,
-          serviceName: service,
-          region: region,
-          files: files,
-          skipIamCheck: skipIamCheck, // Pass the new flag
-        });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Cloud Run service ${service} deployed in project ${project}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${project}\nService URL: ${response.uri}`,
-            }
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error deploying to Cloud Run: ${error.message || error}`,
-            }
-          ],
-        };
+  if (!toolFilter || toolFilter('deploy_local_files')) {
+    server.tool(
+      'deploy_local_files',
+      'Deploy local files to Cloud Run. Takes an array of absolute file paths from the local filesystem that will be deployed. Use this tool if the files exists on the user local filesystem.',
+      {
+        project: z.string().describe('Google Cloud project ID. Do not select it yourself, make sure the user provides or confirms the project ID.').default(defaultProjectId),
+        region: z.string().optional().default(defaultRegion).describe('Region to deploy the service to'),
+        service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'),
+        files: z.array(z.string()).describe('Array of absolute file paths to deploy (e.g. ["/home/user/project/src/index.js", "/home/user/project/package.json"])'),
+      },
+      async ({ project, region, service, files }) => {
+        if (typeof project !== 'string') {
+          throw new Error('Project must specified, please prompt the user for a valid existing Google Cloud project ID.');
+        }
+        if (typeof files !== 'object' || !Array.isArray(files)) {
+          throw new Error('Files must specified');
+        }
+        if (files.length === 0) {
+          throw new Error('No files specified for deployment');
+        }
+
+        // Deploy to Cloud Run
+        try {
+          // TODO: Should we return intermediate progress messages? we'd need to use sendNotification for that, see https://github.com/modelcontextprotocol/typescript-sdk/blob/main/src/examples/server/jsonResponseStreamableHttp.ts#L46C24-L46C41
+          const response = await deploy({
+            projectId: project,
+            serviceName: service,
+            region: region,
+            files: files,
+            skipIamCheck: skipIamCheck, // Pass the new flag
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Cloud Run service ${service} deployed in project ${project}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${project}\nService URL: ${response.uri}`,
+              }
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Error deploying to Cloud Run: ${error.message || error}`,
+              }
+            ],
+          };
+        }
+      });
+  }
+
+
+  if (!toolFilter || toolFilter('deploy_local_folder')) {
+    server.tool(
+      'deploy_local_folder',
+      'Deploy a local folder to Cloud Run. Takes an absolute folder path from the local filesystem that will be deployed. Use this tool if the entire folder content needs to be deployed.',
+      {
+        project: z.string().describe('Google Cloud project ID. Do not select it yourself, make sure the user provides or confirms the project ID.').default(defaultProjectId),
+        region: z.string().optional().default(defaultRegion).describe('Region to deploy the service to'),
+        service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'),
+        folderPath: z.string().describe('Absolute path to the folder to deploy (e.g. "/home/user/project/src")'),
+      },
+      async ({ project, region, service, folderPath }) => {
+        if (typeof project !== 'string') {
+          throw new Error('Project must be specified, please prompt the user for a valid existing Google Cloud project ID.');
+        }
+        if (typeof folderPath !== 'string' || folderPath.trim() === '') {
+          throw new Error('Folder path must be specified and be a non-empty string.');
+        }
+
+        // Deploy to Cloud Run
+        try {
+          const response = await deploy({
+            projectId: project,
+            serviceName: service,
+            region: region,
+            files: [folderPath],
+            skipIamCheck: skipIamCheck, // Pass the new flag
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Cloud Run service ${service} deployed from folder ${folderPath} in project ${project}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${project}\nService URL: ${response.uri}`,
+              }
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Error deploying folder to Cloud Run: ${error.message || error}`,
+              }
+            ],
+          };
+        }
       }
-    });
+    );
+  }
+
+  if (!toolFilter || toolFilter('deploy_file_contents')) {
+    server.tool(
+      'deploy_file_contents',
+      'Deploy files to Cloud Run by providing their contents directly. Takes an array of file objects containing filename and content. Use this tool if the files only exist in the current chat context.',
+      {
+        project: z.string().describe('Google Cloud project ID. Leave unset for the app to be deployed in a new project. If provided, make sure the user confirms the project ID they want to deploy to.').default(defaultProjectId),
+        region: z.string().optional().default(defaultRegion).describe('Region to deploy the service to'),
+        service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'),
+        files: z.array(z.object({
+          filename: z.string().describe('Name and path of the file (e.g. "src/index.js" or "data/config.json")'),
+          content: z.string().optional().describe('Text content of the file'),
+        })).describe('Array of file objects containing filename and content'),
+      },
+      async ({ project, region, service, files }) => {
+        if (typeof project !== 'string') {
+          throw new Error('Project must specified, please prompt the user for a valid existing Google Cloud project ID.');
+        }
+        if (typeof files !== 'object' || !Array.isArray(files)) {
+          throw new Error('Files must be specified');
+        }
+        if (files.length === 0) {
+          throw new Error('No files specified for deployment');
+        }
+
+        // Validate that each file has either content
+        for (const file of files) {
+          if (!file.content) {
+            throw new Error(`File ${file.filename} must have content`);
+          }
+        }
+
+        // Deploy to Cloud Run
+        try {
+          const response = await deploy({
+            projectId: project,
+            serviceName: service,
+            region: region,
+            files: files,
+            skipIamCheck: skipIamCheck, // Pass the new flag
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Cloud Run service ${service} deployed in project ${project}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${project}\nService URL: ${response.uri}`,
+              }
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Error deploying to Cloud Run: ${error.message || error}`,
+              }
+            ],
+          };
+        }
+      });
+  }
 };
 
 export const registerToolsRemote = async (server, {
@@ -372,6 +389,7 @@ export const registerToolsRemote = async (server, {
   defaultRegion, 
   defaultServiceName,
   skipIamCheck = false,
+  toolFilter = null,
 } = {}) => {
   // We no longer call checkGCP here; the effective defaults are passed in.
   const currentProject = defaultProjectId; // Use the passed effective project ID
@@ -382,159 +400,166 @@ export const registerToolsRemote = async (server, {
   }
 
   // Listing Cloud Run services (Remote)
-  server.tool(
-    "list_services",
-    `Lists Cloud Run services in GCP project ${currentProject} and a given region.`,
-    {
-      region: z.string().describe("Region where the services are located").default(currentRegion),
-    },
-    async ({ region }) => {
-      try {
-        const services = await listServices(currentProject, region);
-        const serviceList = services.map(s => {
-          const serviceName = s.name.split('/').pop();
-          return `- ${serviceName} (URL: ${s.uri})`;
-        }).join('\n');
-        return {
-          content: [{
-            type: 'text',
-            text: `Services in project ${currentProject} (location ${region}):\n${serviceList}`
-          }]
-        };
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error listing services for project ${currentProject} (region ${currentRegion}): ${error.message}`
-          }]
-        };
+  if (!toolFilter || toolFilter('list_services')) {
+    server.tool(
+      "list_services",
+      `Lists Cloud Run services in GCP project ${currentProject} and a given region.`,
+      {
+        region: z.string().describe("Region where the services are located").default(currentRegion),
+      },
+      async ({ region }) => {
+        try {
+          const services = await listServices(currentProject, region);
+          const serviceList = services.map(s => {
+            const serviceName = s.name.split('/').pop();
+            return `- ${serviceName} (URL: ${s.uri})`;
+          }).join('\n');
+          return {
+            content: [{
+              type: 'text',
+              text: `Services in project ${currentProject} (location ${region}):\n${serviceList}`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error listing services for project ${currentProject} (region ${currentRegion}): ${error.message}`
+            }]
+          };
+        }
       }
-    }
-  );
+    );
+  }
 
   // Dynamic resource for getting a specific service (Remote)
-  server.tool(
-    "get_service",
-    `Gets details for a specific Cloud Run service in GCP project ${currentProject}.`,
-    {
-      region: z.string().describe("Region where the service is located").default(currentRegion),
-      service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
-    },
-    async ({ region, service }) => {
-      if (typeof service !== 'string') {
-        return { content: [{ type: 'text', text: "Error: Service name must be provided." }] };
-      }
-      try {
-        const serviceDetails = await getService(currentProject, region, service);
-        if (serviceDetails) {
+  if (!toolFilter || toolFilter('get_service')) {
+    server.tool(
+      "get_service",
+      `Gets details for a specific Cloud Run service in GCP project ${currentProject}.`,
+      {
+        region: z.string().describe("Region where the service is located").default(currentRegion),
+        service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
+      },
+      async ({ region, service }) => {
+        if (typeof service !== 'string') {
+          return { content: [{ type: 'text', text: "Error: Service name must be provided." }] };
+        }
+        try {
+          const serviceDetails = await getService(currentProject, region, service);
+          if (serviceDetails) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Name: ${service}\nRegion: ${region}\nProject: ${currentProject}\nURL: ${serviceDetails.uri}\nLast deployed by: ${serviceDetails.lastModifier}`
+              }]
+            };
+          } else {
+            return {
+              content: [{
+                type: 'text',
+                text: `Service ${service} not found in project ${currentProject} (region ${currentRegion}).`
+              }]
+            };
+          }
+        } catch (error) {
           return {
             content: [{
               type: 'text',
-              text: `Name: ${service}\nRegion: ${region}\nProject: ${currentProject}\nURL: ${serviceDetails.uri}\nLast deployed by: ${serviceDetails.lastModifier}`
-            }]
-          };
-        } else {
-          return {
-            content: [{
-              type: 'text',
-              text: `Service ${service} not found in project ${currentProject} (region ${currentRegion}).`
+              text: `Error getting service ${service} in project ${currentProject} (region ${currentRegion}): ${error.message}`
             }]
           };
         }
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error getting service ${service} in project ${currentProject} (region ${currentRegion}): ${error.message}`
-          }]
-        };
       }
-    }
-  );
+    );
+  }
 
   // Logs for a service
-  server.tool(
-    "get_service_log",
-    "Gets Logs and Error Messages for a specific Cloud Run service.",
-    {
-      project: z.string().describe("Google Cloud project ID containing the service").default(currentProject), // Use currentProject
-      region: z.string().describe("Region where the service is located").default(currentRegion), // Use currentRegion
-      service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
-    },
-    async ({ project, region, service }) => {
-      let allLogs = [];
-      let requestOptions;
-      try {
-        do {
-          // Fetch a page of logs
-          const response = await getServiceLogs(project, region, service, requestOptions);
+  if (!toolFilter || toolFilter('get_service_log')) {
+    server.tool(
+      "get_service_log",
+      "Gets Logs and Error Messages for a specific Cloud Run service.",
+      {
+        project: z.string().describe("Google Cloud project ID containing the service").default(currentProject), // Use currentProject
+        region: z.string().describe("Region where the service is located").default(currentRegion), // Use currentRegion
+        service: z.string().describe("Name of the Cloud Run service").default(defaultServiceName),
+      },
+      async ({ project, region, service }) => {
+        let allLogs = [];
+        let requestOptions;
+        try {
+          do {
+            // Fetch a page of logs
+            const response = await getServiceLogs(project, region, service, requestOptions);
 
-          if (response.logs) {
-            allLogs.push(response.logs);
-          }
+            if (response.logs) {
+              allLogs.push(response.logs);
+            }
 
-          // Set the requestOptions incl pagintion token for the next iteration
+            // Set the requestOptions incl pagintion token for the next iteration
 
-          requestOptions = response.requestOptions;
+            requestOptions = response.requestOptions;
 
-        } while (requestOptions); // Continue as long as there is a next page token
-        return {
-          content: [{
-            type: 'text',
-            text: allLogs.join('\n')
-          }]
-        };
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error getting Logs for service ${service} in project ${project} (region ${region}): ${error.message}`
-          }]
-        };
-      }
-    }
-  );
-
-  // Deploy file contents to Cloud Run (Remote)
-  server.tool(
-    'deploy_file_contents',
-    `Deploy files to Cloud Run by providing their contents directly to the GCP project ${currentProject}.`,
-    {
-      region: z.string().optional().default(currentRegion).describe('Region to deploy the service to'),
-      service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'), // Use defaultServiceName
-      files: z.array(z.object({
-        filename: z.string().describe('Name and path of the file (e.g. "src/index.js" or "data/config.json")'),
-        content: z.string().describe('Text content of the file'),
-      })).describe('Array of file objects containing filename and content'),
-    },
-    async ({ region, service, files }) => {
-      console.log(`New deploy request (remote): ${JSON.stringify({ project: currentProject, region, service, files })}`);
-
-      if (typeof files !== 'object' || !Array.isArray(files) || files.length === 0) {
-        throw new Error('Files must be specified');
-      }
-
-      // Validate that each file has content
-      for (const file of files) {
-        if (!file.content) {
-          throw new Error(`File ${file.filename} must have content`);
+          } while (requestOptions); // Continue as long as there is a next page token
+          return {
+            content: [{
+              type: 'text',
+              text: allLogs.join('\n')
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error getting Logs for service ${service} in project ${project} (region ${region}): ${error.message}`
+            }]
+          };
         }
       }
+    );
+  }
 
-      // Deploy to Cloud Run
-      try {
-        const response = await deploy({
-          projectId: currentProject,
-          serviceName: service,
-          region: region,
-          files: files,
-          skipIamCheck: skipIamCheck, // Pass the new flag
-        });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Cloud Run service ${service} deployed in project ${currentProject}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${currentProject}\nService URL: ${response.uri}`,
+  // Deploy file contents to Cloud Run (Remote)
+  if (!toolFilter || toolFilter('deploy_file_contents')) {
+    server.tool(
+      'deploy_file_contents',
+      `Deploy files to Cloud Run by providing their contents directly to the GCP project ${currentProject}.`,
+      {
+        region: z.string().optional().default(currentRegion).describe('Region to deploy the service to'),
+        service: z.string().optional().default(defaultServiceName).describe('Name of the Cloud Run service to deploy to'), // Use defaultServiceName
+        files: z.array(z.object({
+          filename: z.string().describe('Name and path of the file (e.g. "src/index.js" or "data/config.json")'),
+          content: z.string().describe('Text content of the file'),
+        })).describe('Array of file objects containing filename and content'),
+      },
+      async ({ region, service, files }) => {
+        console.log(`New deploy request (remote): ${JSON.stringify({ project: currentProject, region, service, files })}`);
+
+        if (typeof files !== 'object' || !Array.isArray(files) || files.length === 0) {
+          throw new Error('Files must be specified');
+        }
+
+        // Validate that each file has content
+        for (const file of files) {
+          if (!file.content) {
+            throw new Error(`File ${file.filename} must have content`);
+          }
+        }
+
+        // Deploy to Cloud Run
+        try {
+          const response = await deploy({
+            projectId: currentProject,
+            serviceName: service,
+            region: region,
+            files: files,
+            skipIamCheck: skipIamCheck, // Pass the new flag
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Cloud Run service ${service} deployed in project ${currentProject}\nCloud Console: https://console.cloud.google.com/run/detail/${region}/${service}?project=${currentProject}\nService URL: ${response.uri}`,
             }
           ],
         };
@@ -549,4 +574,5 @@ export const registerToolsRemote = async (server, {
         };
       }
     });
+  }
 };

@@ -62,6 +62,40 @@ Run the Cloud Run MCP server on your local machine using local Google Cloud cred
         "args": ["-y", "https://github.com/GoogleCloudPlatform/cloud-run-mcp"]
       }
    ```
+
+## Tool Filtering
+
+You can control which tools are available by using the `--enabled-tools` or `--disabled-tools` arguments:
+
+### Enable only specific tools:
+```json
+"cloud-run": {
+  "command": "npx",
+  "args": [
+    "-y", 
+    "https://github.com/GoogleCloudPlatform/cloud-run-mcp",
+    "--enabled-tools=deploy_file_contents,list_services"
+  ]
+}
+```
+
+### Disable specific tools:
+```json
+"cloud-run": {
+  "command": "npx",
+  "args": [
+    "-y",
+    "https://github.com/GoogleCloudPlatform/cloud-run-mcp", 
+    "--disabled-tools=create_project,list_projects"
+  ]
+}
+```
+
+**Available tool names:**
+- Local mode: `list_projects`, `create_project`, `list_services`, `get_service`, `get_service_log`, `deploy_local_files`, `deploy_local_folder`, `deploy_file_contents`
+- Remote mode: `list_services`, `get_service`, `get_service_log`, `deploy_file_contents`
+
+**Note:** You cannot specify both `--enabled-tools` and `--disabled-tools` at the same time.
 5. [Optional] Add default configurations
 
    ```json 

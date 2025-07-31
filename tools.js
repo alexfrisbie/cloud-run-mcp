@@ -19,6 +19,7 @@ import { deploy } from './lib/cloud-run-deploy.js';
 import { listServices, getService, getServiceLogs } from './lib/cloud-run-services.js';
 import { listProjects, createProjectAndAttachBilling } from './lib/gcp-projects.js';
 import { checkGCP } from './lib/gcp-metadata.js';
+import { getLogs, getResourceTypes, formatLogsForDisplay } from './lib/gcp-logs.js';
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 export const registerTools = (server, {
@@ -213,6 +214,104 @@ export const registerTools = (server, {
             content: [{
               type: 'text',
               text: `Error getting Logs for service ${service} in project ${project} (region ${region}): ${error.message}`
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  // Generic logs tool - similar to Google Cloud Logs Explorer
+  if (!toolFilter || toolFilter('get_logs')) {
+    server.tool(
+      "get_logs",
+      "Gets logs from Google Cloud Logging using custom filters. Similar to the Logs Explorer in Google Cloud Console. Allows querying logs across all services and resources, not limited to Cloud Run.",
+      {
+        project: z.string().describe("Google Cloud project ID").default(defaultProjectId),
+        filter: z.string().optional().describe("Cloud Logging filter query (e.g., 'resource.type=\"cloud_run_revision\" AND severity>=ERROR')"),
+        resourceType: z.string().optional().describe("Resource type filter (e.g., 'cloud_run_revision', 'gce_instance', 'k8s_container', 'cloud_function', 'gae_app')"),
+        severity: z.enum(['DEFAULT', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']).optional().default('DEFAULT').describe("Minimum log severity level"),
+        timeRange: z.string().optional().describe("Time range for logs (e.g., '1h', '24h', '7d', '30m')"),
+        limit: z.number().min(1).max(1000).optional().default(100).describe("Maximum number of log entries to return"),
+        orderBy: z.enum(['timestamp desc', 'timestamp asc']).optional().default('timestamp desc').describe("Sort order for logs"),
+        format: z.enum(['text', 'json', 'table']).optional().default('text').describe("Output format for logs"),
+        pageToken: z.string().optional().describe("Token for pagination (to get next page of results)")
+      },
+      async ({ project, filter, resourceType, severity, timeRange, limit, orderBy, format, pageToken }) => {
+        if (typeof project !== 'string') {
+          return { content: [{ type: 'text', text: "Error: Project ID must be provided." }] };
+        }
+
+        try {
+          const options = {
+            filter,
+            resourceType,
+            severity,
+            timeRange,
+            limit,
+            orderBy,
+            pageToken
+          };
+
+          const result = await getLogs(project, options);
+          const formattedLogs = formatLogsForDisplay(result.logs, format);
+          
+          let responseText = `Logs for project ${project}:\n`;
+          if (result.query) {
+            responseText += `Query: ${result.query}\n`;
+          }
+          responseText += `Found ${result.totalCount} entries\n\n${formattedLogs}`;
+          
+          if (result.nextPageToken) {
+            responseText += `\n\nMore logs available. Use pageToken: ${result.nextPageToken}`;
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: responseText
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error getting logs for project ${project}: ${error.message}`
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  // Tool to get available resource types for logging
+  if (!toolFilter || toolFilter('get_log_resource_types')) {
+    server.tool(
+      "get_log_resource_types",
+      "Gets available resource types for Google Cloud Logging filters. Useful for understanding what resources you can filter logs by.",
+      {
+        project: z.string().describe("Google Cloud project ID").default(defaultProjectId),
+      },
+      async ({ project }) => {
+        if (typeof project !== 'string') {
+          return { content: [{ type: 'text', text: "Error: Project ID must be provided." }] };
+        }
+
+        try {
+          const resourceTypes = await getResourceTypes(project);
+          const resourceList = resourceTypes.map(type => `- ${type}`).join('\n');
+          
+          return {
+            content: [{
+              type: 'text',
+              text: `Available resource types for logging in project ${project}:\n${resourceList}\n\nUse these with the get_logs tool's resourceType parameter to filter logs by specific resource types.`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error getting resource types for project ${project}: ${error.message}`
             }]
           };
         }
@@ -512,6 +611,93 @@ export const registerToolsRemote = async (server, {
             content: [{
               type: 'text',
               text: `Error getting Logs for service ${service} in project ${project} (region ${region}): ${error.message}`
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  // Generic logs tool - similar to Google Cloud Logs Explorer (Remote)
+  if (!toolFilter || toolFilter('get_logs')) {
+    server.tool(
+      "get_logs",
+      `Gets logs from Google Cloud Logging using custom filters for project ${currentProject}. Similar to the Logs Explorer in Google Cloud Console. Allows querying logs across all services and resources, not limited to Cloud Run.`,
+      {
+        filter: z.string().optional().describe("Cloud Logging filter query (e.g., 'resource.type=\"cloud_run_revision\" AND severity>=ERROR')"),
+        resourceType: z.string().optional().describe("Resource type filter (e.g., 'cloud_run_revision', 'gce_instance', 'k8s_container', 'cloud_function', 'gae_app')"),
+        severity: z.enum(['DEFAULT', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']).optional().default('DEFAULT').describe("Minimum log severity level"),
+        timeRange: z.string().optional().describe("Time range for logs (e.g., '1h', '24h', '7d', '30m')"),
+        limit: z.number().min(1).max(1000).optional().default(100).describe("Maximum number of log entries to return"),
+        orderBy: z.enum(['timestamp desc', 'timestamp asc']).optional().default('timestamp desc').describe("Sort order for logs"),
+        format: z.enum(['text', 'json', 'table']).optional().default('text').describe("Output format for logs"),
+        pageToken: z.string().optional().describe("Token for pagination (to get next page of results)")
+      },
+      async ({ filter, resourceType, severity, timeRange, limit, orderBy, format, pageToken }) => {
+        try {
+          const options = {
+            filter,
+            resourceType,
+            severity,
+            timeRange,
+            limit,
+            orderBy,
+            pageToken
+          };
+
+          const result = await getLogs(currentProject, options);
+          const formattedLogs = formatLogsForDisplay(result.logs, format);
+          
+          let responseText = `Logs for project ${currentProject}:\n`;
+          if (result.query) {
+            responseText += `Query: ${result.query}\n`;
+          }
+          responseText += `Found ${result.totalCount} entries\n\n${formattedLogs}`;
+          
+          if (result.nextPageToken) {
+            responseText += `\n\nMore logs available. Use pageToken: ${result.nextPageToken}`;
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: responseText
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error getting logs for project ${currentProject}: ${error.message}`
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  // Tool to get available resource types for logging (Remote)
+  if (!toolFilter || toolFilter('get_log_resource_types')) {
+    server.tool(
+      "get_log_resource_types",
+      `Gets available resource types for Google Cloud Logging filters in project ${currentProject}. Useful for understanding what resources you can filter logs by.`,
+      {},
+      async () => {
+        try {
+          const resourceTypes = await getResourceTypes(currentProject);
+          const resourceList = resourceTypes.map(type => `- ${type}`).join('\n');
+          
+          return {
+            content: [{
+              type: 'text',
+              text: `Available resource types for logging in project ${currentProject}:\n${resourceList}\n\nUse these with the get_logs tool's resourceType parameter to filter logs by specific resource types.`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error getting resource types for project ${currentProject}: ${error.message}`
             }]
           };
         }

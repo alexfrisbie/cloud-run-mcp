@@ -30,12 +30,46 @@ Deploy from agent SDKs, like the [Google Gen AI SDK](https://ai.google.dev/gemin
 - `list-services`: Lists Cloud Run services in a given project and region.
 - `get-service`: Gets details for a specific Cloud Run service.
 - `get-service-log`: Gets Logs and Error Messages for a specific Cloud Run service.
+- `get-logs`: Gets logs from Google Cloud Logging using custom filters. Similar to the Logs Explorer in Google Cloud Console. Allows querying logs across all services and resources, not limited to Cloud Run.
+- `get-log-resource-types`: Gets available resource types for Google Cloud Logging filters. Useful for understanding what resources you can filter logs by.
 - `deploy-local-files`*: Deploys files from the local file system to a Google Cloud Run service.
 - `deploy-local-folder`*: Deploys a local folder to a Google Cloud Run service.
 - `list-projects`*: Lists available GCP projects.
 - `create-project`*: Creates a new GCP project and attach it to the first available billing account. A project ID can be optionally specified.
 
 _\* only available when running locally_
+
+### Generic Logs Tool (`get-logs`)
+
+The `get-logs` tool provides powerful log querying capabilities similar to the Google Cloud Logs Explorer. Unlike `get-service-log` which is limited to Cloud Run services, this tool can query logs from any Google Cloud resource.
+
+**Key Features:**
+- Query logs across all GCP resources (Cloud Run, Compute Engine, Kubernetes, Cloud Functions, etc.)
+- Custom filter queries using Cloud Logging filter syntax
+- Time range filtering (e.g., '1h', '24h', '7d', '30m')
+- Severity level filtering (DEFAULT, INFO, WARNING, ERROR, CRITICAL)
+- Multiple output formats (text, json, table)
+- Pagination support for large result sets
+- Resource type filtering
+
+**Example Usage:**
+- Get all error logs from the last hour: `severity=ERROR, timeRange=1h`
+- Get Cloud Run logs: `resourceType=cloud_run_revision, timeRange=24h`
+- Custom filter: `filter=resource.type="gce_instance" AND severity>=WARNING`
+- Get logs in table format: `format=table, limit=50`
+
+**Supported Resource Types:**
+- `cloud_run_revision` - Cloud Run services
+- `gce_instance` - Compute Engine instances
+- `k8s_container` - Kubernetes containers
+- `cloud_function` - Cloud Functions
+- `gae_app` - App Engine applications
+- `cloud_sql_database` - Cloud SQL databases
+- `gcs_bucket` - Cloud Storage buckets
+- `pubsub_topic` - Pub/Sub topics
+- And many more...
+
+Use `get-log-resource-types` to see all available resource types for your project.
 
 ## Use as local MCP server
 
@@ -92,8 +126,8 @@ You can control which tools are available by using the `--enabled-tools` or `--d
 ```
 
 **Available tool names:**
-- Local mode: `list_projects`, `create_project`, `list_services`, `get_service`, `get_service_log`, `deploy_local_files`, `deploy_local_folder`, `deploy_file_contents`
-- Remote mode: `list_services`, `get_service`, `get_service_log`, `deploy_file_contents`
+- Local mode: `list_projects`, `create_project`, `list_services`, `get_service`, `get_service_log`, `get_logs`, `get_log_resource_types`, `deploy_local_files`, `deploy_local_folder`, `deploy_file_contents`
+- Remote mode: `list_services`, `get_service`, `get_service_log`, `get_logs`, `get_log_resource_types`, `deploy_file_contents`
 
 **Note:** You cannot specify both `--enabled-tools` and `--disabled-tools` at the same time.
 5. [Optional] Add default configurations
